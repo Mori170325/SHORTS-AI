@@ -1,3 +1,4 @@
+
 name: SHORTS AI Video Processing
 
 on:
@@ -10,6 +11,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
 
       - name: Check FFmpeg
         run: |
