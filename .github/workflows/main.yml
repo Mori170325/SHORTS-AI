@@ -9,18 +9,102 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Start
-        run: echo "SHORTS AI START"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Install FFmpeg
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
+          python -m pip install google-api-python-client google-auth
 
-      - name: Check FFmpeg
+      - name: Download videos from Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
         run: |
-          ffmpeg -version
-          echo "FFMPEG READY"
+          cat > download_videos.py <<'PY'
+          import os
+          import json
+          import io
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaIoBaseDownload
 
-      - name: Finish
-        run: echo "SHORTS AI CLOUD READY"
+          key = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+          folder_id = os.environ["GOOGLE_DRIVE_FOLDER_ID"]
+
+          credentials = service_account.Credentials.from_service_account_info(
+              key,
+              scopes=["https://www.googleapis.com/auth/drive.readonly"]
+          )
+
+          drive = build("drive", "v3", credentials=credentials)
+
+          os.makedirs("videos", exist_ok=True)
+
+          result = drive.files().list(
+              q=f"'{folder_id}' in parents and trashed=false",
+              fields="files(id,name,mimeType)",
+              pageSize=100
+          ).execute()
+
+          files = result.get("files", [])
+
+          for number in range(1, 6):
+              prefix = f"SHORTS_SCENE_{number}_"
+              matches = [
+                  f for f in files
+                  if f["name"].startswith(prefix)
+                  and f["mimeType"].startswith("video/")
+              ]
+
+              if len(matches) != 1:
+                  raise RuntimeError(
+                      f"Scene {number}: expected 1 video, found {len(matches)}"
+                  )
+
+              file = matches[0]
+              request = drive.files().get_media(fileId=file["id"])
+              path = f"videos/scene_{number}.mp4"
+
+              with io.FileIO(path, "wb") as output:
+                  downloader = MediaIoBaseDownload(output, request)
+                  done = False
+                  while not done:
+                      _, done = downloader.next_chunk()
+
+              print(f"Downloaded: {file['name']}")
+
+          print("ALL 5 VIDEOS DOWNLOADED")
+          PY
+
+          python download_videos.py
+
+      - name: Convert and merge videos
+        run: |
+          mkdir -p converted
+
+          for i in 1 2 3 4 5; do
+            ffmpeg -y -i "videos/scene_${i}.mp4" \
+              -map 0:v:0 -an \
+              -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=yuv420p" \
+              -c:v libx264 -preset veryfast -crf 23 \
+              "converted/scene_${i}.mp4"
+          done
+
+          for i in 1 2 3 4 5; do
+            echo "file 'converted/scene_${i}.mp4'" >> filelist.txt
+          done
+
+          ffmpeg -y -f concat -safe 0 -i filelist.txt \
+            -c:v libx264 -preset veryfast -crf 23 \
+            -pix_fmt yuv420p -movflags +faststart \
+            SHORTS_AI_FINAL.mp4
+
+      - name: Upload finished video
+        uses: actions/upload-artifact@v4
+        with:
+          name: SHORTS-AI-FINAL-VIDEO
+          path: SHORTS_AI_FINAL.mp4
+          retention-days: 7
