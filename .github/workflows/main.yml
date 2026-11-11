@@ -1,0 +1,26 @@
+
+name: SHORTS AI Video Processing
+
+on:
+  workflow_dispatch:
+
+jobs:
+  video-processing:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Start
+        run: echo "SHORTS AI START"
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Check FFmpeg
+        run: |
+          ffmpeg -version
+          echo "FFMPEG READY"
+
+      - name: Finish
+        run: echo "SHORTS AI CLOUD READY"
